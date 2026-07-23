@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useStore } from '../store/useStore'
 import { getFilesData } from '../utils/db'
-import { applyMapping, getSessions, formatTimestamp } from '../utils/dataHelpers'
+import { applyMapping, getSessionById, getSessions, formatTimestamp } from '../utils/dataHelpers'
 import SessionGraph from '../components/SessionGraph'
 import { ArrowLeft } from 'lucide-react'
 
@@ -9,6 +9,7 @@ export default function InvestigationPage() {
   const { files, selectedFileIds } = useStore()
   const [allData, setAllData] = useState([])
   const [dataLoading, setDataLoading] = useState(false)
+  const [searchType, setSearchType] = useState('user_id')
   const [userId, setUserId] = useState('')
   const [sessions, setSessions] = useState([])
   const [searched, setSearched] = useState(false)
@@ -31,6 +32,15 @@ export default function InvestigationPage() {
   const handleSearch = () => {
     const id = userId.trim()
     if (!id) return
+
+    if (searchType === 'session_id') {
+      const session = getSessionById(allData, id)
+      setSessions([])
+      setSelectedSession(session)
+      setSearched(true)
+      return
+    }
+
     const result = getSessions(allData, id)
     setSessions(result)
     setSearched(true)
@@ -58,9 +68,30 @@ export default function InvestigationPage() {
       {/* Search bar */}
       {!selectedSession && (
         <div className="flex gap-3 flex-shrink-0">
+          <div className="flex bg-gray-900 border border-gray-700 rounded-xl p-1">
+            {['user_id', 'session_id'].map((type) => (
+              <button
+                key={type}
+                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                  searchType === type
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+                onClick={() => {
+                  setSearchType(type)
+                  setSessions([])
+                  setSelectedSession(null)
+                  setSearched(false)
+                  setUserId('')
+                }}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
           <input
             type="text"
-            placeholder="user_id"
+            placeholder={searchType}
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -77,7 +108,7 @@ export default function InvestigationPage() {
       )}
 
       {/* Session list */}
-      {!selectedSession && searched && (
+      {!selectedSession && searched && searchType === 'user_id' && (
         <div className="flex-1 overflow-auto min-h-0">
           {sessions.length === 0 ? (
             <p className="text-gray-500 text-center py-12">
@@ -129,6 +160,14 @@ export default function InvestigationPage() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {!selectedSession && searched && searchType === 'session_id' && (
+        <div className="flex-1 flex items-center justify-center min-h-0">
+          <p className="text-gray-500 text-center py-12">
+            Nenhuma sessão encontrada para <span className="text-gray-300">"{userId}"</span>
+          </p>
         </div>
       )}
 

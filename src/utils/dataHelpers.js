@@ -196,6 +196,20 @@ export function getSessions(data, userId) {
     .sort((a, b) => a.startTs - b.startTs)
 }
 
+export function getSessionById(data, sessionId) {
+  const events = data.filter((row) => String(row.session_id) === String(sessionId))
+  if (events.length === 0) return null
+
+  const timestamps = events.map((event) => parseTimestamp(event.app_timestamp)).filter((t) => t > 0)
+  return {
+    id: sessionId,
+    events,
+    startTs: timestamps.length ? Math.min(...timestamps) : 0,
+    endTs: timestamps.length ? Math.max(...timestamps) : 0,
+    eventCount: events.length,
+  }
+}
+
 /** Build React Flow nodes and edges from session events */
 export function buildSessionGraph(sessionEvents) {
   const sorted = [...sessionEvents].sort(
