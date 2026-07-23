@@ -267,24 +267,46 @@ export function buildHolisticOverview(rows) {
             screenEntry.users.add(getUserKey(row))
           })
 
-          journeyEntry.sessions.forEach((sessionRows) => {
-            const sortedRows = [...sessionRows].sort(
-              (a, b) => parseTimestamp(a.app_timestamp) - parseTimestamp(b.app_timestamp),
-            )
-            const navSequence = []
+          // Primary: use app_screen_referrer for direct transition data
+          const rowsWithReferrer = journeyEntry.rows.filter((row) => {
+            const referrer = firstFilled(row?.app_screen_referrer)
+            const screen = getScreenLabel(row)
+            return referrer && referrer !== screen
+          })
 
-            getNavigationSource(sortedRows).forEach((row) => {
+          if (rowsWithReferrer.length > 0) {
+            rowsWithReferrer.forEach((row) => {
               const screen = getScreenLabel(row)
-              if (navSequence[navSequence.length - 1] !== screen) {
-                navSequence.push(screen)
+              const referrer = firstFilled(row?.app_screen_referrer)
+              if (!referrer) return
+              const key = `${referrer}||${screen}`
+              edgeMap.set(key, (edgeMap.get(key) || 0) + 1)
+              // Ensure the referrer screen exists in the map even if it was never a view target
+              if (!screenMap.has(referrer)) {
+                screenMap.set(referrer, { screen: referrer, views: 0, users: new Set(), events: 0 })
               }
             })
+          } else {
+            // Fallback: session-based sequential transitions when no referrer data is available
+            journeyEntry.sessions.forEach((sessionRows) => {
+              const sortedRows = [...sessionRows].sort(
+                (a, b) => parseTimestamp(a.app_timestamp) - parseTimestamp(b.app_timestamp),
+              )
+              const navSequence = []
 
-            for (let index = 1; index < navSequence.length; index += 1) {
-              const key = `${navSequence[index - 1]}||${navSequence[index]}`
-              edgeMap.set(key, (edgeMap.get(key) || 0) + 1)
-            }
-          })
+              getNavigationSource(sortedRows).forEach((row) => {
+                const screen = getScreenLabel(row)
+                if (navSequence[navSequence.length - 1] !== screen) {
+                  navSequence.push(screen)
+                }
+              })
+
+              for (let index = 1; index < navSequence.length; index += 1) {
+                const key = `${navSequence[index - 1]}||${navSequence[index]}`
+                edgeMap.set(key, (edgeMap.get(key) || 0) + 1)
+              }
+            })
+          }
 
           const screens = [...screenMap.values()]
             .map((screenEntry) => ({
@@ -308,7 +330,7 @@ export function buildHolisticOverview(rows) {
             totalUsers: journeyEntry.users.size,
             totalSessions: journeyEntry.sessions.size,
             totalViews: screens.reduce((sum, screen) => sum + screen.views, 0),
-            screenCount: screens.length,
+            screenCount: screens.filter((s) => s.views > 0).length,
             screens,
             edges,
           }

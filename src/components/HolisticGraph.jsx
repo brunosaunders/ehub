@@ -2,35 +2,43 @@ import { useMemo } from 'react'
 import {
   Background,
   Controls,
+  Handle,
   MarkerType,
   MiniMap,
+  Position,
   ReactFlow,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
-const GROUP_PADDING_X = 20
-const GROUP_PADDING_Y = 48
-const SCREEN_WIDTH = 180
-const SCREEN_HEIGHT = 74
-const SCREEN_GAP_X = 18
-const SCREEN_GAP_Y = 14
-const SCREENS_PER_ROW = 2
-const GROUP_GAP_X = 56
-const GROUP_GAP_Y = 56
-const GROUPS_PER_ROW = 2
+// ── Layout constants ──────────────────────────────────────────────────────────
+const NODE_W = 192
+const NODE_H = 84
+const H_GAP = 64   // horizontal gap between DAG layers
+const V_GAP = 24   // vertical gap between nodes in the same layer
+const HEADER_H = 82
+const PAD_X = 28
+const PAD_TOP = 14
+const PAD_BOTTOM = 24
+const GROUP_GAP_Y = 60
+
+// ── Node components ───────────────────────────────────────────────────────────
 
 function JourneyGroupNode({ data }) {
   return (
-    <div className="w-full h-full rounded-2xl border border-dashed border-cyan-700/80 bg-cyan-950/10">
-      <div className="px-4 py-3 border-b border-cyan-900/60 bg-cyan-950/30 rounded-t-2xl">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300/90">
+    <div className="w-full h-full rounded-2xl border border-dashed border-cyan-700/60 bg-cyan-950/8 pointer-events-none">
+      <div className="px-4 py-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-500/80">
           Jornada
         </p>
-        <p className="text-sm font-semibold text-white mt-1 break-words">{data.journey}</p>
-        <div className="flex gap-2 mt-2 text-[11px] text-cyan-100/75 flex-wrap">
+        <p className="text-sm font-bold text-white mt-0.5 break-words leading-snug">
+          {data.journey}
+        </p>
+        <div className="flex flex-wrap gap-3 mt-2 text-[11px] text-cyan-200/55">
           <span>{data.totalViews.toLocaleString()} views</span>
+          <span>·</span>
           <span>{data.totalSessions.toLocaleString()} sessões</span>
-          <span>{data.screenCount.toLocaleString()} telas</span>
+          <span>·</span>
+          <span>{data.screenCount.toLocaleString()} tela{data.screenCount !== 1 ? 's' : ''}</span>
         </div>
       </div>
     </div>
@@ -38,26 +46,58 @@ function JourneyGroupNode({ data }) {
 }
 
 function ScreenNode({ data }) {
+  const isEntry = data.views === 0   // came only as a referrer, never as a primary target
   return (
-    <div className="w-full h-full rounded-xl border border-blue-700/80 bg-gray-950/95 shadow-lg shadow-blue-950/20 px-3 py-2.5">
-      <p className="text-xs font-semibold text-blue-300 leading-snug break-words line-clamp-2">
-        {data.screen}
-      </p>
-      <div className="mt-3 flex items-end justify-between gap-3">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.14em] text-gray-500">Visualizações</p>
-          <p className="text-lg font-bold text-white leading-none mt-1">
-            {data.views.toLocaleString()}
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-[10px] uppercase tracking-[0.14em] text-gray-500">Usuários</p>
-          <p className="text-sm font-semibold text-gray-300 leading-none mt-1">
-            {data.userCount.toLocaleString()}
-          </p>
+    <>
+      <Handle
+        type="target"
+        position={Position.Left}
+        style={{ background: '#38bdf8', width: 8, height: 8, border: '2px solid #0f172a' }}
+      />
+      <div
+        className={`w-full h-full rounded-xl shadow-lg px-3 pt-2.5 pb-2 select-none ${
+          isEntry
+            ? 'border border-gray-700/60 bg-gray-900/90 shadow-gray-950/40'
+            : 'border border-blue-700/70 bg-gray-950 shadow-blue-950/30'
+        }`}
+      >
+        <p
+          className={`text-xs font-semibold leading-snug line-clamp-2 break-words ${
+            isEntry ? 'text-gray-400' : 'text-blue-200'
+          }`}
+          title={data.screen}
+        >
+          {data.screen}
+        </p>
+        <div className="mt-2.5 grid grid-cols-2 gap-x-3 items-end">
+          <div>
+            <p className="text-[9px] uppercase tracking-[0.14em] text-gray-500">Views</p>
+            <p
+              className={`text-lg font-bold leading-none mt-0.5 tabular-nums ${
+                isEntry ? 'text-gray-600' : 'text-white'
+              }`}
+            >
+              {isEntry ? '–' : data.views.toLocaleString()}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-[9px] uppercase tracking-[0.14em] text-gray-500">Usuários</p>
+            <p
+              className={`text-sm font-semibold leading-none mt-0.5 tabular-nums ${
+                isEntry ? 'text-gray-600' : 'text-gray-300'
+              }`}
+            >
+              {isEntry ? '–' : data.userCount.toLocaleString()}
+            </p>
+          </div>
         </div>
       </div>
-    </div>
+      <Handle
+        type="source"
+        position={Position.Right}
+        style={{ background: '#38bdf8', width: 8, height: 8, border: '2px solid #0f172a' }}
+      />
+    </>
   )
 }
 
@@ -66,24 +106,111 @@ const nodeTypes = {
   screenNode: ScreenNode,
 }
 
+// ── Layered DAG layout ────────────────────────────────────────────────────────
+//   1. Kahn's algorithm for rank (longest-path from roots)
+//   2. Center each column vertically by view-count order
+//   3. Returns {positions, contentWidth, contentHeight}
+
+function computeLayeredLayout(nodeIds, edgeList) {
+  if (nodeIds.length === 0) {
+    return { positions: new Map(), contentWidth: NODE_W, contentHeight: NODE_H }
+  }
+
+  const outAdj = new Map()
+  const inDeg = new Map()
+  nodeIds.forEach((id) => { outAdj.set(id, []); inDeg.set(id, 0) })
+
+  const validSet = new Set(nodeIds)
+  edgeList.forEach(({ source, target }) => {
+    if (!validSet.has(source) || !validSet.has(target) || source === target) return
+    outAdj.get(source).push(target)
+    inDeg.set(target, inDeg.get(target) + 1)
+  })
+
+  // Rank assignment via BFS (longest path from sources)
+  const rank = new Map()
+  nodeIds.forEach((id) => rank.set(id, 0))
+
+  const queue = nodeIds.filter((id) => inDeg.get(id) === 0)
+  const visited = new Set(queue)
+
+  while (queue.length > 0) {
+    const id = queue.shift()
+    const r = rank.get(id)
+    outAdj.get(id).forEach((tgt) => {
+      if (r + 1 > rank.get(tgt)) rank.set(tgt, r + 1)
+      inDeg.set(tgt, inDeg.get(tgt) - 1)
+      if (inDeg.get(tgt) <= 0 && !visited.has(tgt)) {
+        visited.add(tgt)
+        queue.push(tgt)
+      }
+    })
+  }
+
+  // Group by rank
+  const byRank = new Map()
+  rank.forEach((r, id) => {
+    if (!byRank.has(r)) byRank.set(r, [])
+    byRank.get(r).push(id)
+  })
+
+  const sortedRanks = [...byRank.keys()].sort((a, b) => a - b)
+  const maxCount = Math.max(...sortedRanks.map((r) => byRank.get(r).length))
+
+  const positions = new Map()
+  sortedRanks.forEach((r) => {
+    const col = sortedRanks.indexOf(r)
+    const colNodes = byRank.get(r)
+    const colH = colNodes.length * NODE_H + (colNodes.length - 1) * V_GAP
+    const startY = Math.max(0, (maxCount * (NODE_H + V_GAP) - V_GAP - colH) / 2)
+
+    colNodes.forEach((id, idx) => {
+      positions.set(id, { x: col * (NODE_W + H_GAP), y: startY + idx * (NODE_H + V_GAP) })
+    })
+  })
+
+  const numCols = sortedRanks.length
+  const contentWidth = numCols * NODE_W + Math.max(0, numCols - 1) * H_GAP
+  const contentHeight = maxCount * NODE_H + Math.max(0, maxCount - 1) * V_GAP
+
+  return {
+    positions,
+    contentWidth: Math.max(contentWidth, NODE_W),
+    contentHeight: Math.max(contentHeight, NODE_H),
+  }
+}
+
+// ── Graph elements builder ────────────────────────────────────────────────────
+
 function buildGraphElements(miniapp) {
-  const nodes = []
-  const edges = []
+  const rfNodes = []
+  const rfEdges = []
+  let groupY = 0
 
-  miniapp.journeys.forEach((journey, journeyIndex) => {
-    const screenRows = Math.max(1, Math.ceil(journey.screens.length / SCREENS_PER_ROW))
-    const groupWidth = GROUP_PADDING_X * 2 + (SCREEN_WIDTH * SCREENS_PER_ROW) + (SCREEN_GAP_X * (SCREENS_PER_ROW - 1))
-    const groupHeight = GROUP_PADDING_Y + 26 + (screenRows * SCREEN_HEIGHT) + (Math.max(0, screenRows - 1) * SCREEN_GAP_Y) + 18
-    const groupColumn = journeyIndex % GROUPS_PER_ROW
-    const groupRow = Math.floor(journeyIndex / GROUPS_PER_ROW)
-    const groupX = groupColumn * (groupWidth + GROUP_GAP_X)
-    const groupY = groupRow * (groupHeight + GROUP_GAP_Y)
-    const groupId = `journey:${journey.journey}`
+  miniapp.journeys.forEach((journey) => {
+    const groupId = `grp::${journey.journey}`
+    const screenId = (screen) => `${groupId}::scr::${screen}`
 
-    nodes.push({
+    const screenNodeIds = journey.screens.map((s) => screenId(s.screen))
+    const screenByNodeId = new Map(journey.screens.map((s) => [screenId(s.screen), s]))
+    const validSet = new Set(screenNodeIds)
+
+    const edgeList = journey.edges
+      .map((e) => ({ source: screenId(e.source), target: screenId(e.target), count: e.count }))
+      .filter((e) => validSet.has(e.source) && validSet.has(e.target) && e.source !== e.target)
+
+    if (screenNodeIds.length === 0) return
+
+    const { positions, contentWidth, contentHeight } = computeLayeredLayout(screenNodeIds, edgeList)
+
+    const groupW = PAD_X * 2 + contentWidth
+    const groupH = HEADER_H + PAD_TOP + contentHeight + PAD_BOTTOM
+
+    // Journey group background node
+    rfNodes.push({
       id: groupId,
       type: 'journeyGroup',
-      position: { x: groupX, y: groupY },
+      position: { x: 0, y: groupY },
       data: {
         journey: journey.journey,
         totalViews: journey.totalViews,
@@ -92,60 +219,51 @@ function buildGraphElements(miniapp) {
       },
       draggable: false,
       selectable: false,
-      style: {
-        width: groupWidth,
-        height: groupHeight,
-        background: 'transparent',
-        border: 'none',
-      },
+      style: { width: groupW, height: groupH, background: 'transparent', border: 'none' },
+      zIndex: 0,
     })
 
-    journey.screens.forEach((screen, screenIndex) => {
-      const column = screenIndex % SCREENS_PER_ROW
-      const row = Math.floor(screenIndex / SCREENS_PER_ROW)
-      const screenId = `${groupId}::screen:${screen.screen}`
-
-      nodes.push({
-        id: screenId,
+    // Screen nodes (children of the group)
+    screenNodeIds.forEach((nodeId) => {
+      const screen = screenByNodeId.get(nodeId)
+      const pos = positions.get(nodeId) ?? { x: 0, y: 0 }
+      rfNodes.push({
+        id: nodeId,
         type: 'screenNode',
         parentId: groupId,
         extent: 'parent',
         draggable: false,
-        position: {
-          x: GROUP_PADDING_X + (column * (SCREEN_WIDTH + SCREEN_GAP_X)),
-          y: GROUP_PADDING_Y + (row * (SCREEN_HEIGHT + SCREEN_GAP_Y)),
-        },
-        style: {
-          width: SCREEN_WIDTH,
-          height: SCREEN_HEIGHT,
-          border: 'none',
-          background: 'transparent',
-        },
+        position: { x: PAD_X + pos.x, y: HEADER_H + PAD_TOP + pos.y },
+        style: { width: NODE_W, height: NODE_H, border: 'none', background: 'transparent' },
         data: screen,
+        zIndex: 10,
       })
     })
 
-    journey.edges.forEach((edge) => {
-      const source = `${groupId}::screen:${edge.source}`
-      const target = `${groupId}::screen:${edge.target}`
-      const strokeWidth = Math.min(6, 1.4 + Math.log2(edge.count + 1))
-
-      edges.push({
-        id: `${groupId}::edge:${edge.source}->${edge.target}`,
+    // Directed edges with count label
+    edgeList.forEach(({ source, target, count }) => {
+      const strokeWidth = Math.min(7, 1.5 + Math.log2(count + 1))
+      rfEdges.push({
+        id: `${groupId}::e::${source}::${target}`,
         source,
         target,
         type: 'smoothstep',
-        animated: false,
-        label: edge.count > 1 ? `×${edge.count}` : '1',
-        labelStyle: { fill: '#94a3b8', fontSize: 11, fontWeight: 600 },
+        label: `×${count}`,
+        labelBgStyle: { fill: '#0c1322', fillOpacity: 0.9, rx: 4, ry: 4 },
+        labelStyle: { fill: '#94a3b8', fontSize: 11, fontWeight: 700 },
         style: { stroke: '#38bdf8', strokeWidth },
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#38bdf8' },
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#38bdf8', width: 14, height: 14 },
+        zIndex: 20,
       })
     })
+
+    groupY += groupH + GROUP_GAP_Y
   })
 
-  return { nodes, edges }
+  return { nodes: rfNodes, edges: rfEdges }
 }
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function HolisticGraph({ miniapp }) {
   const { nodes, edges } = useMemo(() => buildGraphElements(miniapp), [miniapp])
@@ -157,16 +275,16 @@ export default function HolisticGraph({ miniapp }) {
         edges={edges}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.18, includeHiddenNodes: false }}
+        fitViewOptions={{ padding: 0.12 }}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable
-        minZoom={0.1}
-        maxZoom={1.8}
+        minZoom={0.05}
+        maxZoom={2}
         proOptions={{ hideAttribution: true }}
         style={{ background: '#020617' }}
       >
-        <Background color="#0f172a" gap={20} size={1} />
+        <Background color="#0f172a" gap={24} size={1} />
         <Controls style={{ background: '#111827', border: '1px solid #1f2937' }} />
         <MiniMap
           pannable
