@@ -122,6 +122,7 @@ export function normalizeBigQueryRows(rows) {
         miniapp_version: firstFilled(mergedFields.miniapp_version),
         app_version: firstFilled(mergedFields.app_version),
         app_screen: mergedFields.app_screen,
+        app_screen_referrer: firstFilled(mergedFields.app_screen_referrer),
         firebase_screen: firstFilled(
           mergedFields.firebase_screen,
           mergedFields.firebase_screen_class,

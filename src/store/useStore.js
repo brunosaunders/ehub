@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware'
 
 const DEFAULT_PRIMARY_COLUMNS = [
   'event_name', 'sdk_version', 'miniapp', 'miniapp_version', 'app_version',
-  'app_screen', 'firebase_screen', 'app_timestamp', 'journey', 'user_id', 'session_id',
+  'app_screen', 'app_screen_referrer', 'firebase_screen', 'app_timestamp', 'journey', 'user_id', 'session_id',
 ]
 const DEFAULT_SECONDARY_COLUMNS = ['component_text', 'component_name', 'selected_option']
 const DEFAULT_TABLE_COLUMN_ORDER = [...DEFAULT_PRIMARY_COLUMNS, ...DEFAULT_SECONDARY_COLUMNS]
@@ -44,7 +44,11 @@ function insertAfter(list, item, afterItem) {
 
 function migratePrimaryColumns(columns) {
   const sanitized = sanitizeList(columns, DEFAULT_PRIMARY_COLUMNS)
-  return insertAfter(sanitized, 'app_screen', 'app_version')
+  return insertAfter(
+    insertAfter(sanitized, 'app_screen', 'app_version'),
+    'app_screen_referrer',
+    'app_screen',
+  )
 }
 
 function buildTableColumnOrder(primaryColumns, secondaryColumns, tableColumnOrder) {
@@ -124,7 +128,7 @@ export const useStore = create(
     }),
     {
       name: 'ehub-analytics-store',
-      version: 3,
+      version: 4,
       migrate: (persistedState, version) => {
         if (!persistedState || typeof persistedState !== 'object') return persistedState
 
@@ -136,7 +140,7 @@ export const useStore = create(
         if (version < 2) {
           state.primaryColumns = migratePrimaryColumns(state.primaryColumns)
         } else {
-          state.primaryColumns = sanitizeList(state.primaryColumns, DEFAULT_PRIMARY_COLUMNS)
+          state.primaryColumns = migratePrimaryColumns(state.primaryColumns)
         }
 
         state.secondaryColumns = sanitizeList(state.secondaryColumns, DEFAULT_SECONDARY_COLUMNS)
