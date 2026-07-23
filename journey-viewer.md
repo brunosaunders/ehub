@@ -1,0 +1,5 @@
+Crie uma aba "visão holística" que consiste em uma página contendo os seguintes recursos:
+- listagem plana de informações do aplicativo: lista todos os miniapps no banco carregado com itens expansíveis que mostram outra lista de jornadas para aquele miniapp, novamente com itens expansíveis mostrando as telas em cada jornada
+- visão de miniapp em árvore (é possível ver todas as telas visualizadas pelos diferentes usuários, conectadas de forma que as arestas possuam uma contagem representando o número de ocorrências de tela A levando para tela B por exemplo, os nós também devem mostrar exatamente o número de vezes que a tela foi visualizada), os nós devem ser agrupados de acordo com suas jornadas de forma bem clara (pode ser uma área delimitada para apenas uma jornada - caixa serrilhada com uma label por ex.)
+
+Para a visão de miniapp em árvore o usuário deverá selecionar qual miniapp ele desejada ver, para isso exiba as possibilidades de miniapps disponíveis, após a seleção o sistema deve maximizar a área de visualização da árvore para o miniapp escolhido, permitindo que o usuário explore as conexões entre as telas e suas respectivas contagens de ocorrências.
