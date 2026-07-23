@@ -4,6 +4,7 @@ import UploadPage from './pages/UploadPage'
 import FilesPage from './pages/FilesPage'
 import DataTablePage from './pages/DataTablePage'
 import InvestigationPage from './pages/InvestigationPage'
+import HolisticViewPage from './pages/HolisticViewPage'
 import SettingsPage from './pages/SettingsPage'
 
 export default function App() {
@@ -16,6 +17,7 @@ export default function App() {
           <Route path="files" element={<FilesPage />} />
           <Route path="data" element={<DataTablePage />} />
           <Route path="investigation" element={<InvestigationPage />} />
+          <Route path="holistic" element={<HolisticViewPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>

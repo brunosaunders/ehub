@@ -172,6 +172,162 @@ export function getBigQueryHeaders(rows, preferredOrder = [], fallbackOrder = []
   return [...orderedPriority, ...others]
 }
 
+export function getMiniappLabel(row) {
+  return firstFilled(row?.miniapp, '(sem miniapp)')
+}
+
+export function getJourneyLabel(row) {
+  return firstFilled(row?.journey, '(sem jornada)')
+}
+
+export function getScreenLabel(row) {
+  return firstFilled(row?.firebase_screen, row?.app_screen, '(sem tela)')
+}
+
+function getSessionKey(row) {
+  return firstFilled(row?.session_id, row?.user_id, '__sem_sessao__')
+}
+
+function getUserKey(row) {
+  return firstFilled(row?.user_id, '__sem_usuario__')
+}
+
+function getNavigationSource(rows) {
+  const withScreen = rows.filter((row) => getScreenLabel(row) !== '(sem tela)')
+  const screenViews = withScreen.filter((row) => row.event_name === 'screen_view')
+  return screenViews.length > 0 ? screenViews : withScreen
+}
+
+export function buildHolisticOverview(rows) {
+  const miniappMap = new Map()
+
+  rows.forEach((row) => {
+    if (!row || Object.values(row).every((value) => String(value ?? '').trim() === '')) return
+
+    const miniapp = getMiniappLabel(row)
+    const journey = getJourneyLabel(row)
+
+    if (!miniappMap.has(miniapp)) {
+      miniappMap.set(miniapp, {
+        miniapp,
+        rows: [],
+        users: new Set(),
+        sessions: new Set(),
+        journeys: new Map(),
+      })
+    }
+
+    const miniappEntry = miniappMap.get(miniapp)
+    miniappEntry.rows.push(row)
+    miniappEntry.users.add(getUserKey(row))
+    miniappEntry.sessions.add(getSessionKey(row))
+
+    if (!miniappEntry.journeys.has(journey)) {
+      miniappEntry.journeys.set(journey, {
+        journey,
+        rows: [],
+        users: new Set(),
+        sessions: new Map(),
+      })
+    }
+
+    const journeyEntry = miniappEntry.journeys.get(journey)
+    journeyEntry.rows.push(row)
+    journeyEntry.users.add(getUserKey(row))
+
+    const sessionKey = getSessionKey(row)
+    if (!journeyEntry.sessions.has(sessionKey)) {
+      journeyEntry.sessions.set(sessionKey, [])
+    }
+    journeyEntry.sessions.get(sessionKey).push(row)
+  })
+
+  return [...miniappMap.values()]
+    .map((miniappEntry) => {
+      const journeys = [...miniappEntry.journeys.values()]
+        .map((journeyEntry) => {
+          const viewRows = getNavigationSource(journeyEntry.rows)
+          const screenMap = new Map()
+          const edgeMap = new Map()
+
+          viewRows.forEach((row) => {
+            const screen = getScreenLabel(row)
+            if (!screenMap.has(screen)) {
+              screenMap.set(screen, {
+                screen,
+                views: 0,
+                users: new Set(),
+                events: 0,
+              })
+            }
+
+            const screenEntry = screenMap.get(screen)
+            screenEntry.views += 1
+            screenEntry.events += 1
+            screenEntry.users.add(getUserKey(row))
+          })
+
+          journeyEntry.sessions.forEach((sessionRows) => {
+            const sortedRows = [...sessionRows].sort(
+              (a, b) => parseTimestamp(a.app_timestamp) - parseTimestamp(b.app_timestamp),
+            )
+            const navSequence = []
+
+            getNavigationSource(sortedRows).forEach((row) => {
+              const screen = getScreenLabel(row)
+              if (navSequence[navSequence.length - 1] !== screen) {
+                navSequence.push(screen)
+              }
+            })
+
+            for (let index = 1; index < navSequence.length; index += 1) {
+              const key = `${navSequence[index - 1]}||${navSequence[index]}`
+              edgeMap.set(key, (edgeMap.get(key) || 0) + 1)
+            }
+          })
+
+          const screens = [...screenMap.values()]
+            .map((screenEntry) => ({
+              screen: screenEntry.screen,
+              views: screenEntry.views,
+              events: screenEntry.events,
+              userCount: screenEntry.users.size,
+            }))
+            .sort((a, b) => b.views - a.views || a.screen.localeCompare(b.screen))
+
+          const edges = [...edgeMap.entries()]
+            .map(([key, count]) => {
+              const [source, target] = key.split('||')
+              return { id: `${journeyEntry.journey}::${key}`, source, target, count }
+            })
+            .sort((a, b) => b.count - a.count || a.id.localeCompare(b.id))
+
+          return {
+            journey: journeyEntry.journey,
+            totalEvents: journeyEntry.rows.length,
+            totalUsers: journeyEntry.users.size,
+            totalSessions: journeyEntry.sessions.size,
+            totalViews: screens.reduce((sum, screen) => sum + screen.views, 0),
+            screenCount: screens.length,
+            screens,
+            edges,
+          }
+        })
+        .sort((a, b) => b.totalViews - a.totalViews || a.journey.localeCompare(b.journey))
+
+      return {
+        miniapp: miniappEntry.miniapp,
+        totalEvents: miniappEntry.rows.length,
+        totalUsers: miniappEntry.users.size,
+        totalSessions: miniappEntry.sessions.size,
+        totalViews: journeys.reduce((sum, journey) => sum + journey.totalViews, 0),
+        screenCount: journeys.reduce((sum, journey) => sum + journey.screenCount, 0),
+        journeys,
+      }
+    })
+    .sort((a, b) => b.totalViews - a.totalViews || a.miniapp.localeCompare(b.miniapp))
+}
+
 /** Get all sessions for a given user_id from merged data */
 export function getSessions(data, userId) {
   const userRows = data.filter((r) => String(r.user_id) === String(userId))

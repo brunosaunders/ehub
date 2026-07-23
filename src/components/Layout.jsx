@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { Upload, FolderOpen, Table2, Search, Settings } from 'lucide-react'
+import { Upload, FolderOpen, Table2, Search, Network, Settings } from 'lucide-react'
 import { useStore } from '../store/useStore'
 
 const NAV = [
@@ -7,6 +7,7 @@ const NAV = [
   { to: '/files', icon: FolderOpen, label: 'Arquivos' },
   { to: '/data', icon: Table2, label: 'Dados' },
   { to: '/investigation', icon: Search, label: 'Investigação' },
+  { to: '/holistic', icon: Network, label: 'Visão Holística' },
   { to: '/settings', icon: Settings, label: 'Configurações' },
 ]
 
