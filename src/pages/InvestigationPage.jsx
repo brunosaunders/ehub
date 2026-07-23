@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useStore } from '../store/useStore'
 import { getFilesData } from '../utils/db'
 import { applyMapping, getSessionById, getSessions, formatTimestamp } from '../utils/dataHelpers'
 import SessionGraph from '../components/SessionGraph'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Check, ChevronsUpDown } from 'lucide-react'
 
 export default function InvestigationPage() {
   const { files, selectedFileIds } = useStore()
@@ -15,6 +15,7 @@ export default function InvestigationPage() {
   const [searched, setSearched] = useState(false)
   const [selectedSession, setSelectedSession] = useState(null)
   const [sortDesc, setSortDesc] = useState(true)
+  const [userPickerOpen, setUserPickerOpen] = useState(false)
 
   useEffect(() => {
     if (selectedFileIds.length === 0) return
@@ -45,6 +46,62 @@ export default function InvestigationPage() {
     setSessions(result)
     setSearched(true)
     setSelectedSession(null)
+  }
+
+  const availableUsers = useMemo(() => {
+    const userMap = new Map()
+
+    allData.forEach((row) => {
+      const normalizedUserId = String(row?.user_id ?? '').trim()
+      if (!normalizedUserId) return
+
+      if (!userMap.has(normalizedUserId)) {
+        userMap.set(normalizedUserId, {
+          id: normalizedUserId,
+          eventCount: 0,
+          sessions: new Set(),
+          lastTimestamp: 0,
+        })
+      }
+
+      const entry = userMap.get(normalizedUserId)
+      entry.eventCount += 1
+
+      const sessionId = String(row?.session_id ?? '').trim()
+      if (sessionId) {
+        entry.sessions.add(sessionId)
+      }
+
+      const timestamp = Number(row?.app_timestamp ?? 0)
+      if (Number.isFinite(timestamp) && timestamp > entry.lastTimestamp) {
+        entry.lastTimestamp = timestamp
+      }
+    })
+
+    return [...userMap.values()]
+      .map((entry) => ({
+        id: entry.id,
+        eventCount: entry.eventCount,
+        sessionCount: entry.sessions.size,
+        lastTimestamp: entry.lastTimestamp,
+      }))
+      .sort((left, right) => right.eventCount - left.eventCount || left.id.localeCompare(right.id))
+  }, [allData])
+
+  const filteredUsers = useMemo(() => {
+    const query = userId.trim().toLowerCase()
+    if (!query) return availableUsers
+    return availableUsers.filter((user) => user.id.toLowerCase().includes(query))
+  }, [availableUsers, userId])
+
+  const selectUser = (nextUserId) => {
+    setUserId(nextUserId)
+    setSearchType('user_id')
+    setUserPickerOpen(false)
+    const result = getSessions(allData, nextUserId)
+    setSessions(result)
+    setSelectedSession(null)
+    setSearched(true)
   }
 
   const sortedSessions = sortDesc ? [...sessions].reverse() : sessions
@@ -79,6 +136,7 @@ export default function InvestigationPage() {
                 }`}
                 onClick={() => {
                   setSearchType(type)
+                  setUserPickerOpen(false)
                   setSessions([])
                   setSelectedSession(null)
                   setSearched(false)
@@ -89,14 +147,94 @@ export default function InvestigationPage() {
               </button>
             ))}
           </div>
-          <input
-            type="text"
-            placeholder={searchType}
-            value={userId}
-            onChange={(e) => setUserId(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500"
-          />
+
+          {searchType === 'user_id' ? (
+            <div className="flex-1 relative">
+              <div className="flex gap-3">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    placeholder="Filtrar user_id"
+                    value={userId}
+                    onChange={(e) => {
+                      setUserId(e.target.value)
+                      setUserPickerOpen(true)
+                    }}
+                    onFocus={() => setUserPickerOpen(true)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 pr-11 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500"
+                  />
+                  <button
+                    type="button"
+                    className="absolute inset-y-0 right-0 px-3 text-gray-500 hover:text-white transition-colors"
+                    onClick={() => setUserPickerOpen((current) => !current)}
+                    aria-label="Abrir lista de user_id"
+                  >
+                    <ChevronsUpDown size={16} />
+                  </button>
+                </div>
+              </div>
+
+              {userPickerOpen && (
+                <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-xl border border-gray-800 bg-gray-950 shadow-2xl shadow-black/40">
+                  <div className="flex items-center justify-between border-b border-gray-800 px-4 py-2.5">
+                    <p className="text-xs uppercase tracking-[0.14em] text-gray-500">
+                      User IDs disponíveis
+                    </p>
+                    <span className="text-xs text-gray-500">
+                      {filteredUsers.length} / {availableUsers.length}
+                    </span>
+                  </div>
+                  <div className="max-h-72 overflow-auto p-2">
+                    {filteredUsers.length === 0 ? (
+                      <p className="px-3 py-8 text-center text-sm text-gray-500">
+                        Nenhum user_id corresponde ao filtro atual.
+                      </p>
+                    ) : (
+                      <div className="space-y-1">
+                        {filteredUsers.map((user) => {
+                          const isSelected = user.id === userId.trim()
+
+                          return (
+                            <button
+                              key={user.id}
+                              type="button"
+                              className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${
+                                isSelected
+                                  ? 'border-blue-600 bg-blue-950/20'
+                                  : 'border-transparent bg-gray-900/60 hover:border-gray-700 hover:bg-gray-900'
+                              }`}
+                              onClick={() => selectUser(user.id)}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium text-blue-300">{user.id}</p>
+                                <p className="mt-1 text-xs text-gray-500">
+                                  {user.sessionCount} sessões · {user.eventCount} eventos
+                                </p>
+                              </div>
+                              {isSelected ? (
+                                <Check size={15} className="flex-shrink-0 text-blue-300" />
+                              ) : null}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <input
+              type="text"
+              placeholder={searchType}
+              value={userId}
+              onChange={(e) => setUserId(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500"
+            />
+          )}
+
           <button
             className="px-6 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-500 transition-colors font-medium disabled:opacity-50"
             onClick={handleSearch}
@@ -104,6 +242,43 @@ export default function InvestigationPage() {
           >
             {dataLoading ? 'Carregando...' : 'Buscar'}
           </button>
+        </div>
+      )}
+
+      {!selectedSession && searchType === 'user_id' && !dataLoading && availableUsers.length > 0 && (
+        <div className="flex-shrink-0 rounded-xl border border-gray-800 bg-gray-950/40 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-white">User IDs disponíveis</p>
+              <p className="mt-1 text-xs text-gray-500">
+                Selecione um identificador da lista ou filtre pelo campo acima.
+              </p>
+            </div>
+            <span className="rounded-full border border-gray-800 bg-gray-900 px-2.5 py-1 text-xs text-gray-400">
+              {availableUsers.length} user_ids
+            </span>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2 max-h-28 overflow-auto pr-1">
+            {filteredUsers.slice(0, 30).map((user) => {
+              const isSelected = user.id === userId.trim()
+
+              return (
+                <button
+                  key={user.id}
+                  type="button"
+                  className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                    isSelected
+                      ? 'border-blue-600 bg-blue-950/20 text-blue-300'
+                      : 'border-gray-800 bg-gray-900 text-gray-400 hover:border-gray-700 hover:text-white'
+                  }`}
+                  onClick={() => selectUser(user.id)}
+                >
+                  {user.id}
+                </button>
+              )
+            })}
+          </div>
         </div>
       )}
 
