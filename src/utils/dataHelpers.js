@@ -62,7 +62,9 @@ function extractBigQueryValue(value) {
 }
 
 function parseJsonCell(rawValue, fieldName, rowIndex) {
-  if (rawValue == null || String(rawValue).trim() === '') return null
+  if (rawValue == null) return null
+  if (typeof rawValue === 'object') return rawValue
+  if (String(rawValue).trim() === '') return null
 
   const baseValue = String(rawValue).trim()
   const candidates = [baseValue]
