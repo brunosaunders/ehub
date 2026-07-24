@@ -55,14 +55,15 @@ function buildImportedFileName(projectId, jobId) {
 
 export default function UploadPage() {
   const { addFile, primaryColumns, secondaryColumns, tableColumnOrder } = useStore()
+  const [googleToken, setGoogleToken] = useState(null)
   const isBigQueryEnabled = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID)
+  const isGoogleConnected = Boolean(googleToken?.access_token)
 
   const [mode, setMode] = useState('csv')
   const [step, setStep] = useState('drop') // drop | parsing | preview | saving | done
   const [parsed, setParsed] = useState(null)
   const [fileName, setFileName] = useState('')
   const [isDragging, setIsDragging] = useState(false)
-  const [googleToken, setGoogleToken] = useState(null)
   const [projectId, setProjectId] = useState('')
   const [jobs, setJobs] = useState([])
   const [selectedJobId, setSelectedJobId] = useState('')
@@ -149,6 +150,7 @@ export default function UploadPage() {
     setJobs([])
     setSelectedJobId('')
     setSelectedJobSummary(null)
+    setProjectId('')
     setBigQueryError('')
   }, [googleToken])
 
@@ -430,9 +432,12 @@ export default function UploadPage() {
               <p className="text-xs text-gray-500 mt-1">
                 O acesso usa a permissão da conta autenticada no navegador.
               </p>
+              <p className="text-xs mt-2 text-gray-400">
+                Status: {isGoogleConnected ? 'conectada' : 'desconectada'}
+              </p>
             </div>
 
-            {googleToken ? (
+            {isGoogleConnected ? (
               <button
                 className="px-4 py-2 bg-gray-800 text-gray-200 rounded-lg hover:bg-gray-700 transition-colors text-sm"
                 onClick={handleGoogleDisconnect}
@@ -464,7 +469,7 @@ export default function UploadPage() {
             <button
               className="px-4 py-2.5 bg-gray-800 text-gray-200 rounded-xl hover:bg-gray-700 transition-colors text-sm disabled:opacity-50"
               onClick={handleLoadJobs}
-              disabled={!isBigQueryEnabled || !googleToken || isLoadingJobs}
+              disabled={!isBigQueryEnabled || !isGoogleConnected || isLoadingJobs}
             >
               {isLoadingJobs ? 'Carregando jobs...' : 'Carregar jobs'}
             </button>
@@ -527,72 +532,86 @@ export default function UploadPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-gray-800 bg-gray-950/40 p-5">
-              <p className="text-sm font-medium text-white mb-4">Resumo do job</p>
+            <div className="space-y-5">
+              <div className="rounded-2xl border border-gray-800 bg-gray-950/40 p-5">
+                <p className="text-sm font-medium text-white mb-4">Resumo do job</p>
 
-              {isLoadingJobDetails && (
-                <p className="text-sm text-gray-400">Lendo detalhes e primeira página do job...</p>
-              )}
+                {isLoadingJobDetails && (
+                  <p className="text-sm text-gray-400">Lendo detalhes e primeira página do job...</p>
+                )}
 
-              {!isLoadingJobDetails && !selectedJobSummary && (
-                <p className="text-sm text-gray-500">
-                  Selecione um job para ver linhas, bytes processados e o impacto aproximado da importação local.
-                </p>
-              )}
+                {!isLoadingJobDetails && !selectedJobSummary && (
+                  <p className="text-sm text-gray-500">
+                    Selecione um job para ver linhas, bytes processados e o impacto aproximado da importação local.
+                  </p>
+                )}
 
-              {!isLoadingJobDetails && selectedJobSummary && (
-                <div className="space-y-4">
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-gray-500">Job ID</span>
-                      <span className="text-gray-200 text-right break-all">{selectedJobSummary.job.jobReference.jobId}</span>
+                {!isLoadingJobDetails && selectedJobSummary && (
+                  <div className="space-y-4">
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-500">Job ID</span>
+                        <span className="text-gray-200 text-right break-all">{selectedJobSummary.job.jobReference.jobId}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-500">Linhas retornadas</span>
+                        <span className="text-gray-200">{Number(selectedJobSummary.totalRows || 0).toLocaleString('pt-BR')}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-500">Bytes processados na query</span>
+                        <span className="text-gray-200">{formatBytes(selectedJobSummary.totalBytesProcessed)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-500">Custo estimado da query original</span>
+                        <span className="text-gray-200">{formatUsd(estimatedCost)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-500">Tamanho estimado para baixar</span>
+                        <span className="text-gray-200">
+                          {selectedJobSummary.estimatedDownloadBytes
+                            ? formatBytes(selectedJobSummary.estimatedDownloadBytes)
+                            : 'estimativa indisponível'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-gray-500">Cache do BigQuery</span>
+                        <span className="text-gray-200">{selectedJobSummary.cacheHit ? 'sim' : 'não'}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-gray-500">Linhas retornadas</span>
-                      <span className="text-gray-200">{Number(selectedJobSummary.totalRows || 0).toLocaleString('pt-BR')}</span>
+
+                    <div className="rounded-xl border border-blue-900/40 bg-blue-950/20 p-4 text-xs text-blue-100">
+                      Importar um job existente não reexecuta a query. O principal impacto agora é o volume de dados que será baixado e processado no navegador.
                     </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-gray-500">Bytes processados na query</span>
-                      <span className="text-gray-200">{formatBytes(selectedJobSummary.totalBytesProcessed)}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-gray-500">Custo estimado da query original</span>
-                      <span className="text-gray-200">{formatUsd(estimatedCost)}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-gray-500">Tamanho estimado para baixar</span>
-                      <span className="text-gray-200">
-                        {selectedJobSummary.estimatedDownloadBytes
-                          ? formatBytes(selectedJobSummary.estimatedDownloadBytes)
-                          : 'estimativa indisponível'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-gray-500">Cache do BigQuery</span>
-                      <span className="text-gray-200">{selectedJobSummary.cacheHit ? 'sim' : 'não'}</span>
-                    </div>
+
+                    {(Number(selectedJobSummary.totalRows || 0) >= BIGQUERY_IMPORT_ROW_WARNING_THRESHOLD ||
+                      Number(selectedJobSummary.estimatedDownloadBytes || 0) >= BIGQUERY_IMPORT_SIZE_WARNING_BYTES) && (
+                      <div className="rounded-xl border border-amber-900/40 bg-amber-950/20 p-4 text-xs text-amber-100">
+                        Aviso: este job pode ser pesado para importar localmente. Considere filtrar a query no BigQuery ou testar primeiro com um resultado menor.
+                      </div>
+                    )}
+
+                    <button
+                      className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-500 transition-colors text-sm font-medium disabled:opacity-50"
+                      onClick={handleImportSelectedJob}
+                      disabled={isImportingJob || step === 'parsing'}
+                    >
+                      {isImportingJob || step === 'parsing' ? 'Importando job...' : 'Importar job'}
+                    </button>
                   </div>
+                )}
+              </div>
 
-                  <div className="rounded-xl border border-blue-900/40 bg-blue-950/20 p-4 text-xs text-blue-100">
-                    Importar um job existente não reexecuta a query. O principal impacto agora é o volume de dados que será baixado e processado no navegador.
-                  </div>
-
-                  {(Number(selectedJobSummary.totalRows || 0) >= BIGQUERY_IMPORT_ROW_WARNING_THRESHOLD ||
-                    Number(selectedJobSummary.estimatedDownloadBytes || 0) >= BIGQUERY_IMPORT_SIZE_WARNING_BYTES) && (
-                    <div className="rounded-xl border border-amber-900/40 bg-amber-950/20 p-4 text-xs text-amber-100">
-                      Aviso: este job pode ser pesado para importar localmente. Considere filtrar a query no BigQuery ou testar primeiro com um resultado menor.
-                    </div>
-                  )}
-
-                  <button
-                    className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-500 transition-colors text-sm font-medium disabled:opacity-50"
-                    onClick={handleImportSelectedJob}
-                    disabled={isImportingJob || step === 'parsing'}
-                  >
-                    {isImportingJob || step === 'parsing' ? 'Importando job...' : 'Importar job'}
-                  </button>
-                </div>
-              )}
+              <div className="rounded-2xl border border-amber-800/50 bg-amber-950/20 p-5 space-y-3">
+                <p className="text-sm font-medium text-amber-50">Como configurar o acesso ao Google</p>
+                <ol className="list-decimal pl-5 space-y-1.5 text-sm text-amber-100/90">
+                  <li>Abra o Google Cloud Console no mesmo projeto do BigQuery.</li>
+                  <li>Vá em APIs e serviços &gt; Tela de consentimento OAuth e conclua a configuração inicial, se ainda não existir.</li>
+                  <li>Vá em APIs e serviços &gt; Credenciais e crie um ID do cliente OAuth do tipo Aplicativo da Web.</li>
+                  <li>Em Origens JavaScript autorizadas, adicione <span className="font-mono">http://localhost:5173</span>.</li>
+                  <li>Crie um arquivo <span className="font-mono">.env.local</span> na raiz com <span className="font-mono">VITE_GOOGLE_CLIENT_ID=seu_client_id</span>.</li>
+                  <li>Reinicie o front com <span className="font-mono">npm run dev</span> e tente conectar novamente.</li>
+                </ol>
+              </div>
             </div>
           </div>
         </div>
@@ -645,9 +664,20 @@ export default function UploadPage() {
 
       {parsed ? (
         <>
-          <h1 className="text-2xl font-bold text-white mb-2">
-            {mode === 'bigquery' ? 'Pré-visualização do Job' : 'Upload BigQuery CSV'}
-          </h1>
+          <div className="flex items-start justify-between gap-4 mb-2">
+            <h1 className="text-2xl font-bold text-white">
+              {mode === 'bigquery' ? 'Pré-visualização do Job' : 'Upload BigQuery CSV'}
+            </h1>
+
+            {mode === 'bigquery' && isGoogleConnected && (
+              <button
+                className="px-4 py-2 bg-gray-800 text-gray-200 rounded-lg hover:bg-gray-700 transition-colors text-sm flex-shrink-0"
+                onClick={handleGoogleDisconnect}
+              >
+                Desconectar Google
+              </button>
+            )}
+          </div>
           <p className="text-sm text-gray-500 mb-6">
             Os campos usados pela análise são extraídos automaticamente de event_params e user_properties.
           </p>
