@@ -1,7 +1,13 @@
 import { useState, useCallback } from 'react'
 import Papa from 'papaparse'
 import { useStore } from '../store/useStore'
-import { saveFile } from '../utils/db'
+import {
+  appendFileChunk,
+  deleteFile,
+  finalizeFileWrite,
+  initializeFileWrite,
+  saveFile,
+} from '../utils/db'
 import CSVPreview from '../components/CSVPreview'
 import {
   getBigQueryHeaders,
@@ -25,6 +31,12 @@ import {
 
 const BIGQUERY_IMPORT_ROW_WARNING_THRESHOLD = 100000
 const BIGQUERY_IMPORT_SIZE_WARNING_BYTES = 25 * 1024 * 1024
+const BIGQUERY_STREAMING_IMPORT_ROW_THRESHOLD = 250000
+const BIGQUERY_STREAMING_IMPORT_SIZE_BYTES = 100 * 1024 * 1024
+
+function createFileId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
 
 function formatDateTime(value) {
   const date = new Date(Number(value))
@@ -53,6 +65,24 @@ function buildImportedFileName(projectId, jobId) {
   return `bigquery-${projectId}-${jobId}.json`
 }
 
+function collectPopulatedKeys(targetSet, rows) {
+  rows.forEach((row) => {
+    Object.entries(row).forEach(([key, value]) => {
+      if (value != null && String(value).trim() !== '') {
+        targetSet.add(key)
+      }
+    })
+  })
+}
+
+function buildHeadersFromCollectedKeys(keySet, preferredOrder = [], fallbackOrder = []) {
+  const priority = [...preferredOrder, ...fallbackOrder].filter(
+    (key, index, values) => values.indexOf(key) === index && keySet.has(key),
+  )
+  const others = [...keySet].filter((key) => !priority.includes(key)).sort()
+  return [...priority, ...others]
+}
+
 export default function UploadPage() {
   const { addFile, primaryColumns, secondaryColumns, tableColumnOrder } = useStore()
   const [googleToken, setGoogleToken] = useState(null)
@@ -73,6 +103,29 @@ export default function UploadPage() {
   const [isLoadingJobs, setIsLoadingJobs] = useState(false)
   const [isLoadingJobDetails, setIsLoadingJobDetails] = useState(false)
   const [isImportingJob, setIsImportingJob] = useState(false)
+
+  const completeSavedFile = useCallback((id, name, headers, rowCount, extraMeta = {}) => {
+    const uploadedAt = extraMeta.uploadedAt || new Date().toISOString()
+
+    addFile({
+      id,
+      name,
+      headers,
+      rowCount,
+      mapping: {},
+      uploadedAt,
+      ...extraMeta,
+    })
+
+    setParsed(null)
+    setFileName(name)
+    setStep('done')
+    setTimeout(() => {
+      setParsed(null)
+      setFileName('')
+      setStep('drop')
+    }, 2500)
+  }, [addFile])
 
   const ensureGoogleToken = useCallback(async () => {
     if (googleToken && !isGoogleTokenExpired(googleToken)) return googleToken
@@ -271,6 +324,96 @@ export default function UploadPage() {
 
     try {
       const token = await ensureGoogleToken()
+      const shouldStreamToStorage =
+        estimatedDownloadBytes >= BIGQUERY_STREAMING_IMPORT_SIZE_BYTES ||
+        totalRows >= BIGQUERY_STREAMING_IMPORT_ROW_THRESHOLD
+
+      if (shouldStreamToStorage) {
+        const fileId = createFileId()
+        const fileName = buildImportedFileName(projectId.trim(), selectedJobSummary.job.jobReference.jobId)
+        const uploadedAt = new Date().toISOString()
+        const collectedKeys = new Set()
+        const preferredColumns = [...primaryColumns, ...secondaryColumns]
+        let chunkIndex = 0
+        let persistedRowCount = 0
+        try {
+          const persistRows = async (rawRows) => {
+            if (!Array.isArray(rawRows) || rawRows.length === 0) return
+
+            const normalizedRows = normalizeBigQueryRows(rawRows)
+            if (normalizedRows.length === 0) return
+
+            collectPopulatedKeys(collectedKeys, normalizedRows)
+            await appendFileChunk(fileId, chunkIndex, normalizedRows)
+            chunkIndex += 1
+            persistedRowCount += normalizedRows.length
+          }
+
+          await initializeFileWrite({
+            id: fileId,
+            name: fileName,
+            headers: [],
+            mapping: {},
+            uploadedAt,
+            rowCount: 0,
+            chunkCount: 0,
+            estimatedBytes: estimatedDownloadBytes,
+            sourceHeaders: selectedJobSummary.sourceHeaders,
+            sourceType: 'bigquery',
+            storageMode: 'chunked',
+          })
+
+          await persistRows(selectedJobSummary.previewRows)
+
+          let nextPageToken = selectedJobSummary.nextPageToken
+
+          while (nextPageToken) {
+            const page = await getBigQueryQueryResultsPage(
+              token.access_token,
+              projectId.trim(),
+              selectedJobSummary.job.jobReference.jobId,
+              {
+                location: selectedJobSummary.location,
+                maxResults: 1000,
+                pageToken: nextPageToken,
+              },
+            )
+
+            await persistRows(convertBigQueryRows(selectedJobSummary.schemaFields, page.rows || []))
+            nextPageToken = page.pageToken || ''
+          }
+
+          const headers = buildHeadersFromCollectedKeys(
+            collectedKeys,
+            tableColumnOrder,
+            preferredColumns,
+          )
+
+          await finalizeFileWrite(fileId, {
+            name: fileName,
+            headers,
+            rowCount: persistedRowCount,
+            chunkCount: chunkIndex,
+            uploadedAt,
+            estimatedBytes: estimatedDownloadBytes,
+            sourceHeaders: selectedJobSummary.sourceHeaders,
+            sourceType: 'bigquery',
+            storageMode: 'chunked',
+          })
+
+          completeSavedFile(fileId, fileName, headers, persistedRowCount, {
+            uploadedAt,
+            estimatedBytes: estimatedDownloadBytes,
+            sourceType: 'bigquery',
+            storageMode: 'chunked',
+          })
+        } catch (error) {
+          await deleteFile(fileId)
+          throw error
+        }
+        return
+      }
+
       const allRows = [...selectedJobSummary.previewRows]
       let nextPageToken = selectedJobSummary.nextPageToken
 
@@ -324,22 +467,10 @@ export default function UploadPage() {
   const handleSave = async () => {
     if (!parsed) return
     setStep('saving')
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    await saveFile(id, fileName, parsed.meta.fields || [], parsed.data, {})
-    addFile({
-      id,
-      name: fileName,
-      headers: parsed.meta.fields || [],
-      rowCount: parsed.data.length,
-      mapping: {},
-      uploadedAt: new Date().toISOString(),
-    })
-    setStep('done')
-    setTimeout(() => {
-      setParsed(null)
-      setFileName('')
-      setStep('drop')
-    }, 2500)
+    const id = createFileId()
+    const uploadedAt = new Date().toISOString()
+    await saveFile(id, fileName, parsed.meta.fields || [], parsed.data, {}, { uploadedAt })
+    completeSavedFile(id, fileName, parsed.meta.fields || [], parsed.data.length, { uploadedAt })
   }
 
   const reset = () => {

@@ -12,20 +12,37 @@ import { applyMapping } from '../utils/dataHelpers'
 import { ChevronLeft, ChevronRight, Filter, X } from 'lucide-react'
 
 const PAGE_SIZE = 100
+const SAFE_TABLE_MAX_ROWS = 50000
+const LARGE_SELECTION_ROW_THRESHOLD = 500000
+const LARGE_SELECTION_ESTIMATED_BYTES = 250 * 1024 * 1024
 
 export default function DataTablePage() {
   const { files, selectedFileIds, primaryColumns, secondaryColumns, tableColumnOrder } = useStore()
   const [allData, setAllData] = useState([])
   const [loading, setLoading] = useState(false)
+  const [isPartialLoad, setIsPartialLoad] = useState(false)
   const [globalFilter, setGlobalFilter] = useState('')
   const [columnFilters, setColumnFilters] = useState([])
   const [showFilters, setShowFilters] = useState(false)
   const [showAllCols, setShowAllCols] = useState(false)
 
+  const selectedFiles = files.filter((file) => selectedFileIds.includes(file.id))
+  const totalSelectedRows = selectedFiles.reduce((sum, file) => sum + Number(file.rowCount || 0), 0)
+  const totalSelectedEstimatedBytes = selectedFiles.reduce(
+    (sum, file) => sum + Number(file.estimatedBytes || 0),
+    0,
+  )
+  const shouldUseSafeMode =
+    totalSelectedRows >= LARGE_SELECTION_ROW_THRESHOLD ||
+    totalSelectedEstimatedBytes >= LARGE_SELECTION_ESTIMATED_BYTES
+
   useEffect(() => {
     if (selectedFileIds.length === 0) { setAllData([]); return }
     setLoading(true)
-    getFilesData(selectedFileIds).then((filesData) => {
+    getFilesData(
+      selectedFileIds,
+      shouldUseSafeMode ? { maxRows: SAFE_TABLE_MAX_ROWS } : undefined,
+    ).then((filesData) => {
       const merged = filesData.flatMap((fd) => {
         const meta = files.find((f) => f.id === fd.id)
         return applyMapping(fd.data, meta?.mapping).map((r) => ({
@@ -34,9 +51,10 @@ export default function DataTablePage() {
         }))
       })
       setAllData(merged)
+      setIsPartialLoad(shouldUseSafeMode || filesData.some((file) => file.isPartial))
       setLoading(false)
     })
-  }, [selectedFileIds, files])
+  }, [selectedFileIds, files, shouldUseSafeMode])
 
   const columns = useMemo(() => {
     if (allData.length === 0) return []
@@ -128,6 +146,12 @@ export default function DataTablePage() {
           </button>
         </div>
       </div>
+
+      {isPartialLoad && (
+        <div className="rounded-xl border border-amber-800/60 bg-amber-950/20 px-4 py-3 text-sm text-amber-100">
+          Dataset grande detectado. A tabela carregou apenas os primeiros {SAFE_TABLE_MAX_ROWS.toLocaleString('pt-BR')} registros para manter o navegador estável.
+        </div>
+      )}
 
       {/* Filter panel */}
       {showFilters && (

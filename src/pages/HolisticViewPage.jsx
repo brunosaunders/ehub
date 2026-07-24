@@ -5,6 +5,9 @@ import { useStore } from '../store/useStore'
 import { getFilesData } from '../utils/db'
 import { applyMapping, buildHolisticOverview } from '../utils/dataHelpers'
 
+const LARGE_SELECTION_ROW_THRESHOLD = 500000
+const LARGE_SELECTION_ESTIMATED_BYTES = 250 * 1024 * 1024
+
 function SummaryPill({ label, value }) {
   return (
     <div className="rounded-xl border border-gray-800 bg-gray-900/70 px-3 py-2">
@@ -33,10 +36,31 @@ export default function HolisticViewPage() {
   const [expandedMiniapps, setExpandedMiniapps] = useState({})
   const [expandedJourneys, setExpandedJourneys] = useState({})
   const [activeMiniapp, setActiveMiniapp] = useState('')
+  const selectedFiles = useMemo(
+    () => files.filter((file) => selectedFileIds.includes(file.id)),
+    [files, selectedFileIds],
+  )
+  const totalSelectedRows = useMemo(
+    () => selectedFiles.reduce((sum, file) => sum + Number(file.rowCount || 0), 0),
+    [selectedFiles],
+  )
+  const totalSelectedEstimatedBytes = useMemo(
+    () => selectedFiles.reduce((sum, file) => sum + Number(file.estimatedBytes || 0), 0),
+    [selectedFiles],
+  )
+  const isSelectionTooLarge =
+    totalSelectedRows >= LARGE_SELECTION_ROW_THRESHOLD ||
+    totalSelectedEstimatedBytes >= LARGE_SELECTION_ESTIMATED_BYTES
 
   useEffect(() => {
     if (selectedFileIds.length === 0) {
       setAllData([])
+      return
+    }
+
+    if (isSelectionTooLarge) {
+      setAllData([])
+      setLoading(false)
       return
     }
 
@@ -50,7 +74,7 @@ export default function HolisticViewPage() {
         setAllData(merged)
       })
       .finally(() => setLoading(false))
-  }, [selectedFileIds, files])
+  }, [selectedFileIds, files, isSelectionTooLarge])
 
   const deferredData = useDeferredValue(allData)
   const miniapps = useMemo(() => buildHolisticOverview(deferredData), [deferredData])
@@ -104,6 +128,16 @@ export default function HolisticViewPage() {
         icon="⏳"
         title="Carregando base consolidada"
         description="Mesclando os arquivos selecionados e preparando a visão holística."
+      />
+    )
+  }
+
+  if (isSelectionTooLarge) {
+    return (
+      <EmptyState
+        icon="🧱"
+        title="Dataset grande demais para a visão holística no navegador"
+        description={`A seleção atual soma ${totalSelectedRows.toLocaleString('pt-BR')} eventos. Para evitar travamentos, essa tela só processa subconjuntos menores.`}
       />
     )
   }

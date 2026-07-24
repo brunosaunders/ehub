@@ -5,6 +5,9 @@ import { applyMapping, getSessionById, getSessions, formatTimestamp } from '../u
 import SessionGraph from '../components/SessionGraph'
 import { ArrowLeft, Check, ChevronsUpDown } from 'lucide-react'
 
+const LARGE_SELECTION_ROW_THRESHOLD = 500000
+const LARGE_SELECTION_ESTIMATED_BYTES = 250 * 1024 * 1024
+
 export default function InvestigationPage() {
   const { files, selectedFileIds } = useStore()
   const [allData, setAllData] = useState([])
@@ -16,9 +19,30 @@ export default function InvestigationPage() {
   const [selectedSession, setSelectedSession] = useState(null)
   const [sortDesc, setSortDesc] = useState(true)
   const [userPickerOpen, setUserPickerOpen] = useState(false)
+  const selectedFiles = useMemo(
+    () => files.filter((file) => selectedFileIds.includes(file.id)),
+    [files, selectedFileIds],
+  )
+  const totalSelectedRows = useMemo(
+    () => selectedFiles.reduce((sum, file) => sum + Number(file.rowCount || 0), 0),
+    [selectedFiles],
+  )
+  const totalSelectedEstimatedBytes = useMemo(
+    () => selectedFiles.reduce((sum, file) => sum + Number(file.estimatedBytes || 0), 0),
+    [selectedFiles],
+  )
+  const isSelectionTooLarge =
+    totalSelectedRows >= LARGE_SELECTION_ROW_THRESHOLD ||
+    totalSelectedEstimatedBytes >= LARGE_SELECTION_ESTIMATED_BYTES
 
   useEffect(() => {
     if (selectedFileIds.length === 0) return
+    if (isSelectionTooLarge) {
+      setAllData([])
+      setDataLoading(false)
+      return
+    }
+
     setDataLoading(true)
     getFilesData(selectedFileIds).then((filesData) => {
       const merged = filesData.flatMap((fd) => {
@@ -28,7 +52,7 @@ export default function InvestigationPage() {
       setAllData(merged)
       setDataLoading(false)
     })
-  }, [selectedFileIds, files])
+  }, [selectedFileIds, files, isSelectionTooLarge])
 
   const handleSearch = () => {
     const id = userId.trim()
@@ -113,6 +137,20 @@ export default function InvestigationPage() {
           <div className="text-5xl mb-4">🔍</div>
           <p className="text-lg">Nenhum arquivo selecionado</p>
           <p className="text-sm mt-1">Selecione arquivos na página Arquivos</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (isSelectionTooLarge) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center text-gray-500 max-w-lg px-6">
+          <div className="text-5xl mb-4">🧱</div>
+          <p className="text-lg text-gray-300">Dataset grande demais para investigação completa no navegador</p>
+          <p className="text-sm mt-1">
+            A seleção atual soma {totalSelectedRows.toLocaleString('pt-BR')} eventos. Para evitar travamentos, reduza a seleção antes de abrir esta tela.
+          </p>
         </div>
       </div>
     )
