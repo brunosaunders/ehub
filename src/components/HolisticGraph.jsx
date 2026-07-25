@@ -36,7 +36,7 @@ const EDGE_CONTROL_CLEARANCE = EDGE_CONTROL_HIT_W + 24
 
 function JourneyGroupNode({ data }) {
   return (
-    <div className="w-full h-full rounded-2xl border border-dashed border-cyan-700/60 bg-cyan-950/8 pointer-events-none">
+    <div onClick={data.onClick} className="w-full h-full rounded-2xl border border-dashed border-cyan-700/60 bg-cyan-950/8">
       <div className="px-4 py-3">
         <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-500/80">
           Jornada
@@ -69,20 +69,16 @@ function ScreenNode({ data }) {
         style={{ background: '#38bdf8', width: 8, height: 8, border: '2px solid #0f172a' }}
       />
       <div
-        className={`w-full h-full rounded-xl shadow-lg px-3 pt-2.5 pb-2 select-none transition-all ${
-          isActive ? 'ring-2 ring-cyan-300/90 ring-offset-2 ring-offset-slate-950' : ''
-        } ${
-          isMuted ? 'opacity-35 saturate-50' : ''
-        } ${
-          isEntry
+        className={`w-full h-full rounded-xl shadow-lg px-3 pt-2.5 pb-2 select-none transition-all ${isActive ? 'ring-2 ring-cyan-300/90 ring-offset-2 ring-offset-slate-950' : ''
+          } ${isMuted ? 'opacity-35 saturate-50' : ''
+          } ${isEntry
             ? 'border border-gray-700/60 bg-gray-900/90 shadow-gray-950/40'
             : 'border border-blue-700/70 bg-gray-950 shadow-blue-950/30'
-        }`}
+          }`}
       >
         <p
-          className={`text-xs font-semibold leading-snug line-clamp-2 break-words ${
-            isEntry ? 'text-gray-400' : 'text-blue-200'
-          }`}
+          className={`text-xs font-semibold leading-snug line-clamp-2 break-words ${isEntry ? 'text-gray-400' : 'text-blue-200'
+            }`}
           title={data.screen}
         >
           {data.screen}
@@ -91,9 +87,8 @@ function ScreenNode({ data }) {
           <div>
             <p className="text-[9px] uppercase tracking-[0.14em] text-gray-500">Views</p>
             <p
-              className={`text-lg font-bold leading-none mt-0.5 tabular-nums ${
-                isEntry ? 'text-gray-600' : 'text-white'
-              }`}
+              className={`text-lg font-bold leading-none mt-0.5 tabular-nums ${isEntry ? 'text-gray-600' : 'text-white'
+                }`}
             >
               {isEntry ? '–' : data.views.toLocaleString()}
             </p>
@@ -101,9 +96,8 @@ function ScreenNode({ data }) {
           <div className="text-right">
             <p className="text-[9px] uppercase tracking-[0.14em] text-gray-500">Usuários</p>
             <p
-              className={`text-sm font-semibold leading-none mt-0.5 tabular-nums ${
-                isEntry ? 'text-gray-600' : 'text-gray-300'
-              }`}
+              className={`text-sm font-semibold leading-none mt-0.5 tabular-nums ${isEntry ? 'text-gray-600' : 'text-gray-300'
+                }`}
             >
               {isEntry ? '–' : data.userCount.toLocaleString()}
             </p>
@@ -125,17 +119,15 @@ function EdgeControlNode({ data }) {
 
   return (
     <div
-      className={`flex h-full w-full cursor-grab select-none items-center justify-center active:cursor-grabbing ${
-        isMuted ? 'opacity-30' : ''
-      }`}
+      className={`flex h-full w-full cursor-grab select-none items-center justify-center active:cursor-grabbing ${isMuted ? 'opacity-30' : ''
+        }`}
       title="Arraste para reposicionar a rota da aresta"
     >
       <div
-        className={`flex h-[20px] min-w-[40px] items-center justify-center rounded-full border px-2 text-[10px] font-bold tabular-nums shadow-lg transition-all ${
-          isActive
-            ? 'border-cyan-300/90 bg-slate-950/95 text-cyan-200 shadow-cyan-950/60'
-            : 'border-slate-700/70 bg-slate-950/78 text-slate-300 shadow-slate-950/50'
-        }`}
+        className={`flex h-[20px] min-w-[40px] items-center justify-center rounded-full border px-2 text-[10px] font-bold tabular-nums shadow-lg transition-all ${isActive
+          ? 'border-cyan-300/90 bg-slate-950/95 text-cyan-200 shadow-cyan-950/60'
+          : 'border-slate-700/70 bg-slate-950/78 text-slate-300 shadow-slate-950/50'
+          }`}
       >
         {`×${data.count}`}
       </div>
@@ -671,6 +663,7 @@ export default function HolisticGraph({ miniapp }) {
   const [nodes, setNodes] = useState(() => normalizeJourneyGroups(baseGraph.nodes))
   const [edges, setEdges] = useState(baseGraph.edges)
   const [selectedEdgeId, setSelectedEdgeId] = useState(null)
+  const [selectedNodeId, setSelectedNodeId] = useState(null)
 
   useEffect(() => {
     setNodes(normalizeJourneyGroups(baseGraph.nodes))
@@ -706,10 +699,49 @@ export default function HolisticGraph({ miniapp }) {
     [edges, selectedEdgeId],
   )
 
-  const emphasizedNodeIds = useMemo(() => {
-    if (!selectedEdge) return null
-    return new Set([selectedEdge.source, selectedEdge.target])
-  }, [selectedEdge])
+  const {
+    emphasizedNodeIds,
+    emphasizedEdgeIds,
+  } = useMemo(() => {
+    if (selectedNodeId) {
+      const nodeIds = new Set([selectedNodeId])
+      const edgeIds = new Set()
+
+      edges.forEach((edge) => {
+        if (edge.source === selectedNodeId || edge.target === selectedNodeId) {
+          edgeIds.add(edge.id)
+          nodeIds.add(edge.source)
+          nodeIds.add(edge.target)
+        }
+      })
+
+      return {
+        emphasizedNodeIds: nodeIds,
+        emphasizedEdgeIds: edgeIds,
+      }
+    }
+
+    if (selectedEdgeId) {
+      const edge = edges.find((e) => e.id === selectedEdgeId)
+
+      if (!edge) {
+        return {
+          emphasizedNodeIds: null,
+          emphasizedEdgeIds: null,
+        }
+      }
+
+      return {
+        emphasizedNodeIds: new Set([edge.source, edge.target]),
+        emphasizedEdgeIds: new Set([edge.id]),
+      }
+    }
+
+    return {
+      emphasizedNodeIds: null,
+      emphasizedEdgeIds: null,
+    }
+  }, [selectedNodeId, selectedEdgeId, edges])
 
   const journeyHasEmphasis = useMemo(() => {
     if (!emphasizedNodeIds) return null
@@ -726,9 +758,12 @@ export default function HolisticGraph({ miniapp }) {
   const displayNodes = useMemo(
     () => nodes.map((node) => {
       const style = node.style ? { ...node.style } : undefined
+      const hasSelection =
+        selectedEdgeId !== null ||
+        selectedNodeId !== null
 
       if (node.type === 'screenNode') {
-        const emphasis = !emphasizedNodeIds
+        const emphasis = !hasSelection
           ? 'default'
           : emphasizedNodeIds.has(node.id)
             ? 'active'
@@ -750,8 +785,15 @@ export default function HolisticGraph({ miniapp }) {
       }
 
       if (node.type === 'edgeControl') {
-        const isActive = node.data.edgeId === selectedEdgeId
-        const isMuted = !!selectedEdgeId && !isActive
+        const isActive = emphasizedEdgeIds
+          ? emphasizedEdgeIds.has(node.data.edgeId)
+          : false
+
+        const hasSelection =
+          selectedEdgeId !== null || selectedNodeId !== null
+
+        const isMuted =
+          hasSelection && !isActive
         if (style) {
           style.opacity = isMuted ? 0.25 : 1
         }
@@ -782,8 +824,15 @@ export default function HolisticGraph({ miniapp }) {
 
   const displayEdges = useMemo(
     () => edges.map((edge) => {
-      const isActive = edge.id === selectedEdgeId
-      const isMuted = !!selectedEdgeId && !isActive
+      const isActive = emphasizedEdgeIds
+        ? emphasizedEdgeIds.has(edge.id)
+        : false
+
+      const hasSelection =
+        selectedEdgeId !== null || selectedNodeId !== null
+
+      const isMuted =
+        hasSelection && !isActive
 
       return {
         ...edge,
@@ -812,20 +861,34 @@ export default function HolisticGraph({ miniapp }) {
   }, [])
 
   const onEdgeClick = useCallback((_event, edge) => {
+    setSelectedNodeId(null)
     setSelectedEdgeId(edge.id)
   }, [])
 
   const onNodeClick = useCallback((_event, node) => {
+    if (node.type === 'journeyGroup') {
+      setSelectedEdgeId(null)
+      setSelectedNodeId(null)
+      return
+    }
+    
     if (node.type === 'edgeControl') {
+      setSelectedNodeId(null)
       setSelectedEdgeId(node.data.edgeId)
       return
     }
 
+    if (node.type !== 'screenNode') {
+      return
+    }
+
     setSelectedEdgeId(null)
+    setSelectedNodeId(node.id)
   }, [])
 
   const onPaneClick = useCallback(() => {
     setSelectedEdgeId(null)
+    setSelectedNodeId(null)
   }, [])
 
   return (
