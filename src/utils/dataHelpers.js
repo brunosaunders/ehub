@@ -183,7 +183,7 @@ export function getJourneyLabel(row) {
 }
 
 export function getScreenLabel(row) {
-  return firstFilled(row?.firebase_screen, row?.app_screen, '(sem tela)')
+  return firstFilled(row?.app_screen, row?.firebase_screen, '(sem tela)')
 }
 
 function getSessionKey(row) {
@@ -397,21 +397,19 @@ export function buildSessionGraph(sessionEvents) {
     (a, b) => parseTimestamp(a.app_timestamp) - parseTimestamp(b.app_timestamp),
   )
 
-  // Group events by firebase_screen
   const screenMap = new Map()
   for (const ev of sorted) {
-    const screen = ev.firebase_screen || 'unknown'
+    const screen = getScreenLabel(ev)
     if (!screenMap.has(screen)) screenMap.set(screen, [])
     screenMap.get(screen).push(ev)
   }
 
-  // Build navigation sequence: prefer screen_view events, fallback to all
   const screenViews = sorted.filter((e) => e.event_name === 'screen_view')
   const navSource = screenViews.length > 0 ? screenViews : sorted
 
   const navSequence = []
   for (const ev of navSource) {
-    const screen = ev.firebase_screen || 'unknown'
+    const screen = getScreenLabel(ev)
     if (navSequence.length === 0 || navSequence[navSequence.length - 1] !== screen) {
       navSequence.push(screen)
     }
