@@ -45,6 +45,10 @@ export function isBigQueryExportHeaders(headers = []) {
   return BIGQUERY_REQUIRED_HEADERS.every((header) => available.has(header))
 }
 
+export function hasUsableHeaders(headers = []) {
+  return headers.some((header) => String(header ?? '').trim() !== '')
+}
+
 function firstFilled(...values) {
   return values.find((value) => value != null && String(value).trim() !== '')
 }
@@ -108,13 +112,21 @@ function flattenBigQueryField(rawValue, fieldName, rowIndex) {
   return flattened
 }
 
-export function normalizeBigQueryRows(rows) {
-  return rows
-    .filter((row) => row && Object.values(row).some((value) => String(value ?? '').trim() !== ''))
+export function normalizeBigQueryRows(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .filter(
+      (row) =>
+        row &&
+        typeof row === 'object' &&
+        Object.values(row).some((value) => String(value ?? '').trim() !== ''),
+    )
     .map((row, rowIndex) => {
       const eventFields = flattenBigQueryField(row.event_params, 'event_params', rowIndex)
       const userFields = flattenBigQueryField(row.user_properties, 'user_properties', rowIndex)
-      const mergedFields = { ...userFields, ...eventFields }
+      const directFields = Object.fromEntries(
+        Object.entries(row).filter(([key]) => key !== 'event_params' && key !== 'user_properties'),
+      )
+      const mergedFields = { ...directFields, ...userFields, ...eventFields }
 
       return {
         ...mergedFields,

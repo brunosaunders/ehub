@@ -11,7 +11,7 @@ import {
 import CSVPreview from '../components/CSVPreview'
 import {
   getBigQueryHeaders,
-  isBigQueryExportHeaders,
+  hasUsableHeaders,
   normalizeBigQueryRows,
 } from '../utils/dataHelpers'
 import {
@@ -149,8 +149,8 @@ export default function UploadPage() {
         complete: (results) => {
           const sourceHeaders = results.meta.fields || []
 
-          if (!isBigQueryExportHeaders(sourceHeaders)) {
-            alert('Este app aceita apenas CSVs exportados do BigQuery com event_params e user_properties em JSON.')
+          if (!hasUsableHeaders(sourceHeaders)) {
+            alert('O CSV precisa conter pelo menos uma coluna.')
             setStep('drop')
             return
           }
@@ -261,8 +261,8 @@ export default function UploadPage() {
       }
 
       const sourceHeaders = (preview.schema?.fields || []).map((field) => field.name)
-      if (!isBigQueryExportHeaders(sourceHeaders)) {
-        throw new Error('O job precisa retornar event_name, event_params, user_id e user_properties.')
+      if (!hasUsableHeaders(sourceHeaders)) {
+        throw new Error('O job precisa retornar pelo menos uma coluna.')
       }
 
       const previewRows = convertBigQueryRows(preview.schema?.fields || [], preview.rows || [])
@@ -510,7 +510,7 @@ export default function UploadPage() {
     <>
       <h1 className="text-2xl font-bold text-white mb-2">Upload BigQuery CSV</h1>
       <p className="text-sm text-gray-500 mb-6">
-        Aceita apenas exports do BigQuery com colunas JSON em event_params e user_properties.
+        Aceita exports do BigQuery brutos, com JSON em event_params e user_properties, ou com colunas finais já achatadas.
       </p>
       <label
         className={`flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-16 cursor-pointer transition-colors ${
@@ -810,7 +810,7 @@ export default function UploadPage() {
             )}
           </div>
           <p className="text-sm text-gray-500 mb-6">
-            Os campos usados pela análise são extraídos automaticamente de event_params e user_properties.
+            Quando presentes, event_params e user_properties são achatados automaticamente; colunas finais já existentes são mantidas.
           </p>
 
           <CSVPreview headers={parsed.meta.fields} data={parsed.data} fileName={fileName} />
