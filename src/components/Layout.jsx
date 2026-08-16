@@ -1,8 +1,9 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { Upload, FolderOpen, Table2, Search, Network, Settings } from 'lucide-react'
+import { Upload, FolderOpen, LayoutDashboard, Table2, Search, Network, Settings } from 'lucide-react'
 import { useStore } from '../store/useStore'
 
 const NAV = [
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/upload', icon: Upload, label: 'Upload BigQuery' },
   { to: '/files', icon: FolderOpen, label: 'Arquivos' },
   { to: '/data', icon: Table2, label: 'Dados' },

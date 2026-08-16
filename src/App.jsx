@@ -6,6 +6,7 @@ import DataTablePage from './pages/DataTablePage'
 import InvestigationPage from './pages/InvestigationPage'
 import HolisticViewPage from './pages/HolisticViewPage'
 import SettingsPage from './pages/SettingsPage'
+import DashboardPage from './pages/DashboardPage'
 
 export default function App() {
   return (
@@ -13,12 +14,12 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/upload" replace />} />
+          <Route path="dashboard" element={<DashboardPage />} />
           <Route path="upload" element={<UploadPage />} />
           <Route path="files" element={<FilesPage />} />
           <Route path="data" element={<DataTablePage />} />
           <Route path="investigation" element={<InvestigationPage />} />
           <Route path="holistic" element={<HolisticViewPage />} />
-          <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -448,3 +448,194 @@ export function buildSessionGraph(sessionEvents) {
 
   return { nodes, edges }
 }
+
+// ── Dashboard helpers ─────────────────────────────────────────────────────────
+
+export function computePercentiles(values) {
+  if (!values || values.length === 0) return { p50: null, p95: null, p99: null, avg: null }
+  const sorted = [...values].sort((a, b) => a - b)
+  const avg = sorted.reduce((s, v) => s + v, 0) / sorted.length
+  const at = (p) => sorted[Math.min(Math.ceil((p / 100) * sorted.length) - 1, sorted.length - 1)]
+  return { p50: at(50), p95: at(95), p99: at(99), avg: Math.round(avg) }
+}
+
+export function buildDashboardEngagement(rows = []) {
+  const miniappMap = new Map()
+
+  for (const row of rows) {
+    if (row?.event_name !== 'screen_view') continue
+    const miniapp = getMiniappLabel(row)
+    const journey = getJourneyLabel(row)
+    const screen = getScreenLabel(row)
+    const user = getUserKey(row)
+
+    if (!miniappMap.has(miniapp)) {
+      miniappMap.set(miniapp, { miniapp, count: 0, users: new Set(), journeys: new Map() })
+    }
+    const m = miniappMap.get(miniapp)
+    m.count++
+    m.users.add(user)
+
+    if (!m.journeys.has(journey)) {
+      m.journeys.set(journey, { journey, count: 0, users: new Set(), screens: new Map() })
+    }
+    const j = m.journeys.get(journey)
+    j.count++
+    j.users.add(user)
+
+    if (!j.screens.has(screen)) {
+      j.screens.set(screen, { screen, count: 0, users: new Set() })
+    }
+    const s = j.screens.get(screen)
+    s.count++
+    s.users.add(user)
+  }
+
+  return [...miniappMap.values()]
+    .map((m) => ({
+      miniapp: m.miniapp,
+      count: m.count,
+      users: m.users.size,
+      journeys: [...m.journeys.values()]
+        .map((j) => ({
+          journey: j.journey,
+          count: j.count,
+          users: j.users.size,
+          screens: [...j.screens.values()]
+            .map((s) => ({ screen: s.screen, count: s.count, users: s.users.size }))
+            .sort((a, b) => b.count - a.count),
+        }))
+        .sort((a, b) => b.count - a.count),
+    }))
+    .sort((a, b) => b.count - a.count)
+}
+
+export function buildDashboardErrors(rows = []) {
+  const miniappMap = new Map()
+  const getCode = (row) =>
+    String(firstFilled(row?.status_code, row?.http_status, row?.response_code) ?? '–')
+
+  for (const row of rows) {
+    if (row?.event_name !== 'http_request_error') continue
+    const miniapp = getMiniappLabel(row)
+    const journey = getJourneyLabel(row)
+    const screen = getScreenLabel(row)
+    const user = getUserKey(row)
+    const code = getCode(row)
+
+    if (!miniappMap.has(miniapp)) {
+      miniappMap.set(miniapp, { miniapp, count: 0, users: new Set(), codes: new Map(), journeys: new Map() })
+    }
+    const m = miniappMap.get(miniapp)
+    m.count++
+    m.users.add(user)
+    m.codes.set(code, (m.codes.get(code) || 0) + 1)
+
+    if (!m.journeys.has(journey)) {
+      m.journeys.set(journey, { journey, count: 0, users: new Set(), codes: new Map(), screens: new Map() })
+    }
+    const j = m.journeys.get(journey)
+    j.count++
+    j.users.add(user)
+    j.codes.set(code, (j.codes.get(code) || 0) + 1)
+
+    if (!j.screens.has(screen)) {
+      j.screens.set(screen, { screen, count: 0, users: new Set(), codes: new Map() })
+    }
+    const s = j.screens.get(screen)
+    s.count++
+    s.users.add(user)
+    s.codes.set(code, (s.codes.get(code) || 0) + 1)
+  }
+
+  const codesToArr = (map) =>
+    [...map.entries()].map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count)
+
+  return [...miniappMap.values()]
+    .map((m) => ({
+      miniapp: m.miniapp,
+      count: m.count,
+      users: m.users.size,
+      statusCodes: codesToArr(m.codes),
+      journeys: [...m.journeys.values()]
+        .map((j) => ({
+          journey: j.journey,
+          count: j.count,
+          users: j.users.size,
+          statusCodes: codesToArr(j.codes),
+          screens: [...j.screens.values()]
+            .map((s) => ({
+              screen: s.screen,
+              count: s.count,
+              users: s.users.size,
+              statusCodes: codesToArr(s.codes),
+            }))
+            .sort((a, b) => b.count - a.count),
+        }))
+        .sort((a, b) => b.count - a.count),
+    }))
+    .sort((a, b) => b.count - a.count)
+}
+
+export function buildDashboardRequests(rows = []) {
+  const miniappMap = new Map()
+
+  for (const row of rows) {
+    if (row?.event_name !== 'http_request_completed') continue
+    const miniapp = getMiniappLabel(row)
+    const journey = getJourneyLabel(row)
+    const screen = getScreenLabel(row)
+    const user = getUserKey(row)
+    const raw = Number(firstFilled(row?.duration_ms, row?.duration, row?.latency_ms))
+    const dur = Number.isFinite(raw) && raw >= 0 ? raw : null
+
+    if (!miniappMap.has(miniapp)) {
+      miniappMap.set(miniapp, { miniapp, count: 0, users: new Set(), durations: [], journeys: new Map() })
+    }
+    const m = miniappMap.get(miniapp)
+    m.count++
+    m.users.add(user)
+    if (dur !== null) m.durations.push(dur)
+
+    if (!m.journeys.has(journey)) {
+      m.journeys.set(journey, { journey, count: 0, users: new Set(), durations: [], screens: new Map() })
+    }
+    const j = m.journeys.get(journey)
+    j.count++
+    j.users.add(user)
+    if (dur !== null) j.durations.push(dur)
+
+    if (!j.screens.has(screen)) {
+      j.screens.set(screen, { screen, count: 0, users: new Set(), durations: [] })
+    }
+    const s = j.screens.get(screen)
+    s.count++
+    s.users.add(user)
+    if (dur !== null) s.durations.push(dur)
+  }
+
+  return [...miniappMap.values()]
+    .map((m) => ({
+      miniapp: m.miniapp,
+      count: m.count,
+      users: m.users.size,
+      durationStats: computePercentiles(m.durations),
+      journeys: [...m.journeys.values()]
+        .map((j) => ({
+          journey: j.journey,
+          count: j.count,
+          users: j.users.size,
+          durationStats: computePercentiles(j.durations),
+          screens: [...j.screens.values()]
+            .map((s) => ({
+              screen: s.screen,
+              count: s.count,
+              users: s.users.size,
+              durationStats: computePercentiles(s.durations),
+            }))
+            .sort((a, b) => b.count - a.count),
+        }))
+        .sort((a, b) => b.count - a.count),
+    }))
+    .sort((a, b) => b.count - a.count)
+}
